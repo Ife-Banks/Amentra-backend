@@ -1,42 +1,30 @@
 import { sendEmail } from '../config/email.js';
 
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+const clientUrl = process.env.CLIENT_URL || 'http://localhost:8080';
 
-export const sendVerificationEmail = async (email, token, isOTP = false) => {
-  if (isOTP) {
-    // OTP email
-    await sendEmail({
-      to: email,
-      subject: 'A-Mentra - Email Verification Code',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #0f766e; margin-bottom: 20px;">A-Mentra Email Verification</h2>
-          <p style="color: #374151; font-size: 16px; margin-bottom: 20px;">
-            Your 6-digit verification code is:
-          </p>
-          <div style="background-color: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
-            <span style="font-size: 24px; font-weight: bold; color: #0f766e; letter-spacing: 4px;">${token}</span>
-          </div>
-          <p style="color: #6b7280; font-size: 14px; margin-bottom: 20px;">
-            This code will expire in 10 minutes. Do not share this code with anyone.
-          </p>
-          <p style="color: #6b7280; font-size: 14px;">
-            If you didn't request this code, please ignore this email.
-          </p>
+export const sendVerificationEmail = async (email, otp) => {
+  await sendEmail({
+    to: email,
+    subject: 'Verify your A-Mentra account',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #10b981;">Verify Your A-Mentra Account</h2>
+        <p>Enter this 6-digit code to verify your email address:</p>
+        <div style="background: #f3f4f6; border-radius: 8px; padding: 24px; text-align: center; margin: 24px 0;">
+          <span style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #10b981;">
+            ${otp}
+          </span>
         </div>
-      `,
-      text: `Your A-Mentra verification code is: ${token}. This code will expire in 10 minutes.`,
-    });
-  } else {
-    // Regular email verification
-    const link = `${clientUrl}/verify-email?token=${token}`;
-    await sendEmail({
-      to: email,
-      subject: 'Verify your A-Mentra email',
-      html: `Click to verify: <a href="${link}">${link}</a>`,
-      text: `Verify your email: ${link}`,
-    });
-  }
+        <p style="color: #6b7280; font-size: 14px;">
+          This code expires in <strong>30 minutes</strong>.
+        </p>
+        <p style="color: #6b7280; font-size: 14px;">
+          If you didn't register for A-Mentra, ignore this email.
+        </p>
+      </div>
+    `,
+    text: `Your A-Mentra verification code is: ${otp}. This code expires in 30 minutes.`
+  });
 };
 
 export const sendPasswordResetEmail = async (email, token) => {

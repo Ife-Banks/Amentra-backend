@@ -4,7 +4,11 @@ const institutionSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     address: { type: String, required: true },
-    type: { type: String, enum: ['University', 'Polytechnic'], required: true },
+    type: { 
+      type: String, 
+      enum: ['University', 'Polytechnic', 'College_of_Education', 'Monotechnic', 'School_of_Nursing', 'Innovation_Enterprise_Institution', 'Vocational_Enterprise_Institution', 'Technical_College'], 
+      required: true 
+    },
     slug: { type: String, required: true, unique: true },
     isActive: { type: Boolean, default: true },
   },

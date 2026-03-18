@@ -22,13 +22,13 @@ export const registerOrganization = async (data) => {
     slug,
   });
 
-  const passwordHash = await hashPassword(data.adminPassword);
+  // Create super admin user - passwordHash will be hashed by pre-save hook
   const user = await User.create({
     institutionId: institution._id,
     departmentId: null,
     name: data.adminName,
     email: data.adminEmail,
-    passwordHash,
+    passwordHash: data.adminPassword,  // Plain password - hook will hash it
     role: 'super_admin',
     isActive: true,
     mustChangePassword: false,
@@ -39,9 +39,9 @@ export const registerOrganization = async (data) => {
   });
 
   const defaults = [
-    { role: 'admin', password: 'Admin@123' },
-    { role: 'supervisor', password: 'Supervisor@123' },
-    { role: 'student', password: 'Student@123' },
+    { role: 'admin', password: 'Admin@12345' },
+    { role: 'supervisor', password: 'Supervisor@12345' },
+    { role: 'student', password: 'Student@12345' },
   ];
   for (const d of defaults) {
     await DefaultPassword.create({
@@ -51,13 +51,23 @@ export const registerOrganization = async (data) => {
     });
   }
 
-  const token = crypto.randomBytes(32).toString('hex');
-  user.emailVerificationToken = crypto.createHash('sha256').update(token).digest('hex');
-  user.emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  // Generate 6-digit OTP
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  // Store hashed OTP in DB
+  user.emailVerificationToken = crypto.createHash('sha256').update(otp).digest('hex');
+  // Expires in 30 minutes
+  user.emailVerificationExpires = new Date(Date.now() + 30 * 60 * 1000);
   await user.save();
 
+  // Log OTP for testing
+  console.log('=== EMAIL VERIFICATION OTP ===');
+  console.log('Email:', user.email);
+  console.log('OTP:', otp);
+  console.log('==============================');
+
+  // Send OTP via email (not a link)
   try {
-    await sendVerificationEmail(user.email, token);
+    await sendVerificationEmail(user.email, otp);
   } catch (emailError) {
     logger.warn(`Welcome/verification email failed to send: ${emailError.message}`);
   }
@@ -69,12 +79,18 @@ export const registerOrganization = async (data) => {
 };
 
 export const verifyEmail = async (token) => {
+  // Hash the OTP the user entered
   const hashed = crypto.createHash('sha256').update(token).digest('hex');
+  
   const user = await User.findOne({
     emailVerificationToken: hashed,
     emailVerificationExpires: { $gt: new Date() },
   });
-  if (!user) throw new Error('Invalid or expired verification token');
+  
+  if (!user) {
+    throw new Error('Invalid or expired verification code. Please request a new one.');
+  }
+  
   user.isEmailVerified = true;
   user.emailVerificationToken = undefined;
   user.emailVerificationExpires = undefined;
@@ -86,199 +102,124 @@ export const resendVerification = async (email) => {
   const user = await User.findOne({ email });
   if (!user) return;
   if (user.isEmailVerified) return;
-  const token = crypto.randomBytes(32).toString('hex');
-  user.emailVerificationToken = crypto.createHash('sha256').update(token).digest('hex');
-  user.emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  
+  // Generate new 6-digit OTP
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  user.emailVerificationToken = crypto.createHash('sha256').update(otp).digest('hex');
+  user.emailVerificationExpires = new Date(Date.now() + 30 * 60 * 1000);
   await user.save();
+  
+  // Log OTP for testing without email
+  console.log('=== RESEND VERIFICATION OTP ===');
+  console.log('Email:', email);
+  console.log('OTP:', otp);
+  console.log('=================================');
+  
   try {
-    await sendVerificationEmail(user.email, token);
+    await sendVerificationEmail(user.email, otp);
   } catch (emailError) {
     logger.warn(`Resend verification email failed to send: ${emailError.message}`);
   }
 };
 
 export const login = async (identifier, password) => {
-  try {
-    console.log('Login attempt for:', identifier);
-    console.log('Password provided:', !!password);
+  console.log('Login attempt:', identifier);
+  
+  // Check if identifier is email or staffId
+  const isEmail = identifier.includes('@');
+  let user;
+  
+  if (isEmail) {
+    // Email login
+    user = await User.findOne({ 
+      email: identifier.toLowerCase().trim(),
+      isActive: true 
+    }).select('+passwordHash');
+  } else {
+    // Staff ID login
+    user = await User.findOne({ 
+      staffId: identifier.trim(),
+      isActive: true 
+    }).select('+passwordHash');
+  }
+  
+  if (!user) {
+    return { success: false, message: 'Invalid email/staffId or password' };
+  }
+  
+  if (!user.passwordHash) {
+    return { success: false, message: 'Account setup incomplete. Contact your administrator.' };
+  }
+  
+  const match = await user.comparePassword(password);
+  if (!match) {
+    return { success: false, message: 'Invalid email/staffId or password' };
+  }
+  
+  user.lastLoginAt = new Date();
+  await user.save({ validateBeforeSave: false });
+  
+  // Check if this is first login - redirect to password change
+  if (user.isFirstLogin && ['admin', 'supervisor', 'student'].includes(user.role)) {
+    const tempToken = signAccessToken({
+      userId: user._id.toString(),
+      purpose: 'first-login',
+      institutionId: user.institutionId?.toString(),
+    });
     
-    // Check if identifier is email (for admin/super_admin) or staffId/matricNumber
-    const isEmail = identifier.includes('@');
-    let user;
+    return {
+      success: true,
+      isFirstLogin: true,
+      userId: user._id.toString(),
+      userName: user.name,
+      userEmail: user.email || null,
+      tempToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        institutionId: user.institutionId,
+        departmentId: user.departmentId,
+      },
+    };
+  }
     
-    if (isEmail) {
-      // Email login for admin/super_admin
-      user = await User.findOne({ email: identifier, isActive: true }).select('+passwordHash');
-    } else {
-      // Staff ID or Matric Number login for staff/students
-      user = await User.findOne({ 
-        $or: [
-          { staffId: identifier, isActive: true },
-          { matricNumber: identifier, isActive: true }
-        ]
-      }).select('+passwordHash');
-    }
-    
-    console.log('User found:', !!user);
-    if (!user) {
-      return { success: false, message: "Invalid credentials" };
-    }
-    
-    if (!user.passwordHash) {
-      return { success: false, message: "Account setup incomplete. Contact admin." };
-    }
-    
-    const match = await user.comparePassword(password);
-    console.log('Password comparison details:');
-    console.log('- Provided password:', password);
-    console.log('- Stored hash length:', user.passwordHash ? user.passwordHash.length : 'null');
-    console.log('- Password valid:', match);
-    if (!match) {
-      return { success: false, message: "Invalid credentials" };
-    }
-
-    console.log('About to update user.lastLoginAt');
-    user.lastLoginAt = new Date();
-    console.log('About to save user with validateBeforeSave: false');
-    await user.save({ validateBeforeSave: false });
-    console.log('User saved successfully');
-    
-    // Check if this is first login for staff/students/admins
-    if (user.isFirstLogin && ['supervisor', 'student', 'admin'].includes(user.role)) {
-      console.log('First login detected for:', user.role);
-      console.log('Returning first login response with userId:', user._id.toString());
-      
-      // Generate limited-scope temp token for first login flow
-      const tempToken = signAccessToken({
-        userId: user._id.toString(),
-        purpose: 'first-login',
-        institutionId: user.institutionId?.toString(),
-      });
-      
-      // Return special response for first login flow
-      return {
-        success: true,
-        isFirstLogin: true,
-        userId: user._id.toString(),
-        userName: user.name,
-        userEmail: user.email || null,
-        tempToken,
-        user: {
-          id: user._id,
-          name: user.name,
-          role: user.role,
-          institutionId: user.institutionId,
-          departmentId: user.departmentId,
-          email: user.email,
-        },
-      };
-    }
-
-  console.log('Signing token with:', { 
-    userId: user._id.toString(), 
-    institutionId: user.institutionId.toString() 
-  });
-
-  const payload = {
-    userId: user._id.toString(),
-    institutionId: user.institutionId.toString(),
-    role: user.role,
-    departmentId: user.departmentId ? user.departmentId.toString() : null,
-  };
-  const accessToken = signAccessToken(payload);
-  const refreshToken = signRefreshToken(payload);
-
-  const redis = getRedisClient();
-  await redis.setex(`refresh:${user._id}`, 7 * 24 * 60 * 60, refreshToken);
-
-  return {
-    success: true,
-    accessToken,
-    refreshToken,
-    user: {
-      id: user._id,
-      name: user.name,
-      email: user.email,
+    const payload = {
+      userId: user._id.toString(),
+      institutionId: user.institutionId.toString(),
       role: user.role,
-      institutionId: user.institutionId,
-      departmentId: user.departmentId,
-      mustChangePassword: user.mustChangePassword,
-    },
-  };
-  } catch (error) {
-    console.error('Login error:', error);
-    return { success: false, message: "Internal server error", error: error.message };
-  }
-};
-
-export const generateOTP = async (userId, email) => {
-  // Generate 6-digit OTP
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  
-  // Hash the OTP
-  const { hashPassword } = await import('../utils/password.js');
-  const otpHash = await hashPassword(otp);
-  
-  // Set expiry to 10 minutes from now
-  const expiry = new Date(Date.now() + 10 * 60 * 1000);
-  
-  // Update user with OTP hash and expiry
-  await User.findByIdAndUpdate(userId, {
-    otp: otpHash,
-    otpExpiry: expiry,
-    email: email, // Update email if provided
-  });
-  
-  // Send OTP via email
-  try {
-    await sendVerificationEmail(email, otp, true); // true indicates it's an OTP
-    console.log('OTP sent to:', email);
-  } catch (emailError) {
-    console.warn('OTP email failed:', emailError.message);
-    throw new Error('Failed to send OTP. Please try again.');
-  }
-  
-  return { success: true, message: 'OTP sent successfully' };
-};
-
-export const verifyOTP = async (userId, otp) => {
-  const user = await User.findById(userId).select('+otp +otpExpiry');
-  
-  if (!user || !user.otp || !user.otpExpiry) {
-    throw new Error('No OTP found. Please request a new one.');
-  }
-  
-  // Check if OTP has expired
-  if (new Date() > user.otpExpiry) {
-    throw new Error('OTP has expired. Please request a new one.');
-  }
-  
-  // Verify OTP
-  const isValid = await bcrypt.compare(otp, user.otp);
-  if (!isValid) {
-    throw new Error('Invalid OTP');
-  }
-  
-  // Clear OTP fields after successful verification
-  await User.findByIdAndUpdate(userId, {
-    $unset: { otp: 1, otpExpiry: 1 }
-  });
-  
-  return { success: true, message: 'OTP verified successfully' };
-};
-
-export const changePasswordFirstLogin = async (userId, newPassword) => {
-  const { hashPassword } = await import('../utils/password.js');
-  const passwordHash = await hashPassword(newPassword);
-  
-  // Update password and clear first login flag
-  await User.findByIdAndUpdate(userId, {
-    passwordHash,
-    isFirstLogin: false,
-    $unset: { otp: 1, otpExpiry: 1 }
-  });
-  
-  return { success: true, message: 'Password changed successfully' };
+      departmentId: user.departmentId?.toString() || null,
+    };
+    
+    const accessToken = signAccessToken(payload);
+    const refreshToken = signRefreshToken(payload);
+    
+    try {
+      const redis = getRedisClient();
+      await redis.setex(
+        `refresh:${user._id}`, 
+        7 * 24 * 60 * 60, 
+        refreshToken
+      );
+    } catch (redisErr) {
+      console.warn('Redis token store failed (non-fatal):', redisErr.message);
+    }
+    
+    return {
+      success: true,
+      accessToken,
+      refreshToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        institutionId: user.institutionId,
+        departmentId: user.departmentId || null,
+        mustChangePassword: user.mustChangePassword || false,
+      },
+    };
 };
 
 export const refreshAccessToken = async (refreshToken) => {
@@ -330,6 +271,17 @@ export const resetPassword = async (token, newPassword) => {
   user.mustChangePassword = false;
   await user.save();
   return true;
+};
+
+export const changePasswordFirstLogin = async (userId, newPassword) => {
+  const user = await User.findById(userId);
+  if (!user) throw new Error('User not found');
+  
+  user.passwordHash = await hashPassword(newPassword);
+  user.isFirstLogin = false;
+  await user.save();
+  
+  return { success: true, message: 'Password changed successfully' };
 };
 
 export const changePassword = async (userId, currentPassword, newPassword) => {

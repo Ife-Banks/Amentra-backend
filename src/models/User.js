@@ -33,7 +33,20 @@ userSchema.index({ institutionId: 1, email: 1 }, { unique: true, sparse: true })
 userSchema.index({ institutionId: 1, staffId: 1 }, { unique: true, sparse: true }); // Staff ID unique per institution
 userSchema.index({ institutionId: 1, matricNumber: 1 }, { unique: true, sparse: true }); // Matric number unique per institution
 
-userSchema.pre('save', function () {
+// Pre-save hook to hash password and update timestamps
+userSchema.pre('save', async function () {
+  // Skip password hashing if flag is set (escape hatch)
+  if (this.$locals.skipPasswordHash) return;
+  
+  // Hash password if modified (field is named passwordHash)
+  if (this.isModified('passwordHash') && this.passwordHash) {
+    // Only hash if it doesn't already look like a bcrypt hash
+    if (!this.passwordHash.startsWith('$2')) {
+      this.passwordHash = await bcrypt.hash(this.passwordHash, 10);
+    }
+  }
+  
+  // Update timestamp
   this.updatedAt = new Date();
 });
 

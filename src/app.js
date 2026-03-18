@@ -12,7 +12,23 @@ import { errorHandler } from './middleware/errorHandler.js';
 const app = express();
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
 
-app.use(cors({ origin: clientUrl, credentials: true }));
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'https://amentra.vercel.app',
+  'http://localhost:8080',
+  'http://localhost:5173',
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+}));
 app.use(helmet({ contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false }));
 if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 app.use(express.json());

@@ -9,7 +9,10 @@ const passwordSchema = z
 export const registerOrganizationSchema = z.object({
   institutionName: z.string().min(1),
   address: z.string().min(1),
-  type: z.enum(['University', 'Polytechnic']),
+  type: z.enum(['University', 'Polytechnic', 'College_of_Education', 'Monotechnic', 'School_of_Nursing', 'Innovation_Enterprise_Institution', 'Vocational_Enterprise_Institution', 'Technical_College']),
+  city: z.string().min(1).optional(),
+  state: z.string().min(1).optional(),
+  website: z.string().url().optional().or(z.literal('')).or(z.undefined()),
   adminName: z.string().min(1),
   adminEmail: z.string().email(),
   adminPassword: passwordSchema,

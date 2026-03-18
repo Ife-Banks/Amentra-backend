@@ -1,37 +1,29 @@
-import sgMail from '@sendgrid/mail';
-import nodemailer from 'nodemailer';
-
-const sendgridKey = process.env.SENDGRID_API_KEY;
-const emailFrom = process.env.EMAIL_FROM || 'noreply@amentra.com';
-const emailFromName = process.env.EMAIL_FROM_NAME || 'A-Mentra';
-
-if (sendgridKey) {
-  sgMail.setApiKey(sendgridKey);
-}
+import nodemailer from 'nodemailer'
+import logger from '../utils/logger.js'
 
 export const sendEmail = async ({ to, subject, html, text }) => {
-  if (sendgridKey) {
-    await sgMail.send({
-      to,
-      from: { email: emailFrom, name: emailFromName },
-      subject,
-      html: html || text,
-      text,
-    });
-  } else {
+  try {
     const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'localhost',
-      port: parseInt(process.env.SMTP_PORT || '1025', 10),
-      secure: false,
-    });
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_FROM,
+        pass: process.env.GMAIL_APP_PASSWORD,
+      },
+    })
+
     await transporter.sendMail({
-      from: `"${emailFromName}" <${emailFrom}>`,
+      from: `"${process.env.EMAIL_FROM_NAME || 'A-Mentra'}" <${process.env.EMAIL_FROM}>`,
       to,
       subject,
-      html: html || text,
-      text,
-    });
-  }
-};
+      html,
+      text: text || html?.replace(/<[^>]*>/g, '') || subject,
+    })
 
-export { emailFrom, emailFromName };
+    logger.info(`Email sent successfully to ${to}`)
+  } catch (error) {
+    logger.error(`Email send error: ${error.message}`)
+    throw error  // throw so caller knows it failed
+  }
+}
+
+export default sendEmail
