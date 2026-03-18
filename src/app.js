@@ -55,7 +55,21 @@ app.use((req, res, next) => {
 app.use(hpp());
 app.use(compression());
 
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// Swagger docs — no auth required
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: 'A-Mentra API Docs',
+  customCss: '.swagger-ui .topbar { background-color: #0D9E75; }',
+  swaggerOptions: {
+    persistAuthorization: true,  // keeps JWT between page refreshes
+    displayRequestDuration: true,
+  },
+}));
+
+// Also expose the raw JSON spec at /api/docs.json
+app.get('/api/docs.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
 app.use('/api', routes);
 
 app.use((req, res) => {

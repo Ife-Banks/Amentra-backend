@@ -19,6 +19,24 @@ const mw = [verifyToken, requireRole('admin', 'department_admin', 'super_admin',
 
 const router = Router();
 
+/**
+ * @swagger
+ * /admin/dashboard:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get admin dashboard statistics
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dashboard data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/dashboard', ...mw, ctrl.getDashboard);
 router.get('/dashboard/submission-trends', ...mw, ctrl.getSubmissionTrends);
 router.get('/dashboard/company-distribution', ...mw, ctrl.getCompanyDistribution);
@@ -31,6 +49,31 @@ router.put('/supervisors/:id', ...mw, validate(updateUserSchema), ctrl.updateSup
 router.put('/supervisors/:id/deactivate', ...mw, ctrl.deactivateSupervisor);
 router.delete('/supervisors/:id', ...mw, ctrl.deleteSupervisor);
 
+/**
+ * @swagger
+ * /admin/students:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get list of students in department
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Students retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/students', ...mw, ctrl.listStudents);
 router.post('/students', ...mw, validate(createStudentSchema), ctrl.createStudent);
 router.post('/students/bulk-import', ...mw, uploadCsv(), ctrl.createStudentsBulkImport);
@@ -45,6 +88,30 @@ router.get('/assignments', ...mw, ctrl.listAssignments);
 router.put('/assignments/:id/reassign', ...mw, validate(reassignSchema), ctrl.reassign);
 router.delete('/assignments/:id', ...mw, ctrl.deleteAssignment);
 
+/**
+ * @swagger
+ * /admin/logs:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get student activity logs
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, approved, rejected]
+ *       - in: query
+ *         name: studentId
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Logs retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/logs', ...mw, ctrl.listLogs);
 router.get('/logs/pending', ...mw, ctrl.listPendingLogs);
 router.get('/logs/:id', ...mw, ctrl.getLog);
